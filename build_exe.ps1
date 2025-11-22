@@ -4,6 +4,18 @@ if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
     pip install pyinstaller
 }
 
+# Install Pillow for icon conversion
+Write-Host "Ensuring Pillow is installed..."
+pip install Pillow
+
+# Convert PNG to ICO
+$iconPng = "assets/icon.png"
+$iconIco = "assets/icon.ico"
+if (Test-Path $iconPng) {
+    Write-Host "Converting icon to .ico..."
+    python -c "from PIL import Image; img = Image.open(r'$iconPng'); img.save(r'$iconIco', format='ICO', sizes=[(256, 256)])"
+}
+
 # Clean previous build artifacts
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
@@ -14,7 +26,9 @@ Write-Host "Building executable..."
 # --clean: Clean PyInstaller cache
 # --windowed: No console window
 # --onefile: Single executable
-pyinstaller --noconfirm --onefile --windowed --clean --name "Open 4K Editor" main.py
+# --add-data: Bundle assets folder
+# --icon: Set executable icon
+pyinstaller --noconfirm --onefile --windowed --clean --name "Open 4K Editor" --add-data "assets;assets" --icon "assets/icon.ico" main.py
 
 # Post-build steps
 if (Test-Path "dist/Open 4K Editor.exe") {

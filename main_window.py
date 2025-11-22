@@ -1,6 +1,7 @@
 import os
 import subprocess
 from typing import List, Optional
+import sys
 from PyQt6.QtWidgets import (QMainWindow, QPushButton, QLabel, QSlider, QVBoxLayout, 
                              QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, QProgressBar, QComboBox)
 from PyQt6.QtGui import QIcon
@@ -13,12 +14,22 @@ from video_engine import FFmpegCommandBuilder
 from widgets import TimelineSlider, HelpDialog, ExportThread
 from timeline_manager import TimelineManager
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 class MainWindow(QMainWindow):
     """Main application window."""
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Open 4K Editor")
-        self.setWindowIcon(QIcon("assets/icon.png"))
+        self.setWindowIcon(QIcon(resource_path("assets/icon.png")))
         self.resize(800, 600)
 
         # Initialize Engine
