@@ -16,6 +16,7 @@ class ExportSettings:
     use_external_audio: bool = False
     external_audio_path: Optional[str] = None
     external_audio_path: Optional[str] = None
+    fps: float = 23.976
 
 @dataclass
 class SourceClip:

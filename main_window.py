@@ -2,7 +2,7 @@ import os
 import subprocess
 from typing import List, Optional
 from PyQt6.QtWidgets import (QMainWindow, QPushButton, QLabel, QSlider, QVBoxLayout, 
-                             QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, QProgressBar)
+                             QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, QProgressBar, QComboBox)
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtCore import Qt, QUrl
@@ -173,6 +173,18 @@ class MainWindow(QMainWindow):
         self.bitrate_slider.valueChanged.connect(self.update_bitrate_label)
         self.bitrate_slider.setValue(25) 
         bitrate_layout.addWidget(self.bitrate_slider)
+
+        # FPS Selection
+        fps_layout = QVBoxLayout()
+        export_layout.addLayout(fps_layout)
+        
+        self.fps_label = QLabel("FPS:")
+        fps_layout.addWidget(self.fps_label)
+        
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItems(["59.94", "50", "29.97", "25", "23.976"])
+        self.fps_combo.setCurrentText("23.976")
+        fps_layout.addWidget(self.fps_combo)
 
         # Total Duration Label
         self.duration_label = QLabel("Total Duration: 00:00:00")
@@ -507,7 +519,8 @@ class MainWindow(QMainWindow):
             format=os.path.splitext(output_path)[1][1:], # Remove dot
             bitrate_mbps=self.bitrate_slider.value(),
             use_external_audio=bool(self.external_audio_path),
-            external_audio_path=self.external_audio_path
+            external_audio_path=self.external_audio_path,
+            fps=float(self.fps_combo.currentText())
         )
 
         try:

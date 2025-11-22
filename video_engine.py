@@ -169,6 +169,9 @@ class FFmpegCommandBuilder:
         # Audio Codec
         cmd.extend(["-c:a", a_codec])
         
+        # FPS
+        cmd.extend(["-r", str(settings.fps)])
+
         cmd.append(settings.output_path)
 
         return cmd
