@@ -3,6 +3,7 @@ import subprocess
 from typing import List, Optional
 from PyQt6.QtWidgets import (QMainWindow, QPushButton, QLabel, QSlider, QVBoxLayout, 
                              QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, QProgressBar, QComboBox)
+from PyQt6.QtGui import QIcon
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtCore import Qt, QUrl
@@ -17,6 +18,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Open 4K Editor")
+        self.setWindowIcon(QIcon("assets/icon.png"))
         self.resize(800, 600)
 
         # Initialize Engine
