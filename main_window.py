@@ -232,10 +232,14 @@ class MainWindow(QMainWindow):
             return 0
 
     def update_total_duration(self):
-        total_ms = self.timeline_manager.get_total_duration()
-        self.duration_label.setText(f"Total Duration: {self.format_time(total_ms)}")
-        self.slider.setRange(0, total_ms)
-        self.end_label.setText(f"End: {self.format_time(total_ms)}")
+        # Slider range is based on the full timeline (including gaps)
+        timeline_len_ms = self.timeline_manager.get_total_duration()
+        self.slider.setRange(0, timeline_len_ms)
+        self.end_label.setText(f"End: {self.format_time(timeline_len_ms)}")
+
+        # Effective duration is the sum of all "Keep" segments
+        effective_ms = sum(seg.end_ms - seg.start_ms for seg in self.segments)
+        self.duration_label.setText(f"Total Duration: {self.format_time(effective_ms)}")
 
     def show_help(self):
         dialog = HelpDialog(self)
