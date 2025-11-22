@@ -1,50 +1,86 @@
-# Check if PyInstaller is installed
-if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
-    Write-Host "PyInstaller not found. Installing..."
-    pip install pyinstaller
+$ErrorActionPreference = "Stop"
+
+# Определяем, где мы запущены: в GitHub Actions или локально
+$isCI = [bool]$env:GITHUB_ACTIONS
+
+Write-Host "--- Starting Build Process ---"
+if ($isCI) { Write-Host "Environment: GitHub Actions (Clean Install)" -ForegroundColor Cyan }
+else { Write-Host "Environment: Local Machine (Smart Check)" -ForegroundColor Cyan }
+
+# --- ФУНКЦИЯ ПРОВЕРКИ ---
+# Проверяет, установлен ли модуль Python. Если нет — устанавливает.
+function Ensure-Package ($packageName, $importName) {
+    # Если мы в CI, всегда устанавливаем
+    if ($isCI) {
+        Write-Host "CI: Installing $packageName..."
+        pip install $packageName
+        return
+    }
+
+    # Локально проверяем через Python import
+    Write-Host "Checking $packageName..." -NoNewline
+    python -c "import $importName" 2>$null
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " OK (Already installed)" -ForegroundColor Green
+    } else {
+        Write-Host " MISSING. Installing..." -ForegroundColor Yellow
+        pip install $packageName
+    }
 }
 
-# Install Pillow for icon conversion
-Write-Host "Ensuring Pillow is installed..."
-pip install Pillow
+# 1. Build Tools
+# Проверяем 'pyinstaller' (пакет) по импорту 'PyInstaller' (модуль)
+Ensure-Package "pyinstaller" "PyInstaller"
+# Проверяем 'Pillow' (пакет) по импорту 'PIL' (модуль)
+Ensure-Package "Pillow" "PIL"
 
-# Convert PNG to ICO
+# 2. Project Dependencies (requirements.txt)
+if ($isCI) {
+    # В GitHub Actions ставим зависимости всегда
+    if (Test-Path "requirements.txt") {
+        Write-Host "CI: Installing dependencies from requirements.txt..."
+        pip install -r requirements.txt
+    }
+} else {
+    # Локально мы предполагаем, что среда уже настроена.
+    # Но если хотите, можно раскомментировать строку ниже, чтобы pip проверил их (это обычно быстро)
+    # pip install -r requirements.txt
+    Write-Host "Local: Skipping requirements.txt install (assuming dev env is ready)." -ForegroundColor DarkGray
+}
+
+# 3. Convert Icon
 $iconPng = "assets/icon.png"
 $iconIco = "assets/icon.ico"
 if (Test-Path $iconPng) {
-    Write-Host "Converting icon to .ico..."
-    python -c "from PIL import Image; img = Image.open(r'$iconPng'); img.save(r'$iconIco', format='ICO', sizes=[(256, 256)])"
+    # Конвертируем иконку только если её нет или если мы в CI (чтобы обновить)
+    if ($isCI -or (-not (Test-Path $iconIco))) {
+        Write-Host "Converting icon to .ico..."
+        python -c "from PIL import Image; img = Image.open(r'$iconPng'); img.save(r'$iconIco', format='ICO', sizes=[(256, 256)])"
+    } else {
+        Write-Host "Icon already exists. Skipping conversion." -ForegroundColor DarkGray
+    }
 }
 
-# Clean previous build artifacts
+# 4. Cleanup (Чистим старое)
+# Локально можно не чистить так агрессивно, но для надежности сборки лучше оставить
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
-if (Test-Path "Open 4K Editor.spec") { Remove-Item -Force "Open 4K Editor.spec" }
+if (Test-Path "*.spec") { Remove-Item -Force "*.spec" }
 
-# Build the executable
-Write-Host "Building executable..."
-# --clean: Clean PyInstaller cache
-# --windowed: No console window
-# --onefile: Single executable
-# --add-data: Bundle assets folder
-# --icon: Set executable icon
-pyinstaller --noconfirm --onefile --windowed --clean --name "Open 4K Editor" --add-data "assets;assets" --icon "assets/icon.ico" main.py
+# 5. Build
+Write-Host "Running PyInstaller..."
+pyinstaller --noconfirm --onefile --windowed --clean --name "Open 4K Editor" --add-data "assets;assets" --icon "assets/icon.ico" main.py --log-level WARN
 
-# Post-build steps
+# 6. Verify
 if (Test-Path "dist/Open 4K Editor.exe") {
-    Write-Host "Build success!"
-    
-    # Copy ffmpeg.exe if it exists in the root, so the user has it ready
-    if (Test-Path "ffmpeg.exe") {
-        Write-Host "Copying ffmpeg.exe to dist folder..."
-        Copy-Item "ffmpeg.exe" -Destination "dist"
-    } else {
-        Write-Host "Warning: ffmpeg.exe not found in root. You may need to provide it manually."
-    }
-
-    Write-Host "Executable is located in the 'dist' folder."
+    Write-Host "SUCCESS: Build complete." -ForegroundColor Green
+    Write-Host "File: dist/Open 4K Editor.exe"
 } else {
-    Write-Host "Build failed."
+    Write-Host "ERROR: Output file not found!" -ForegroundColor Red
+    exit 1
 }
 
-Read-Host -Prompt "Press Enter to exit"
+if (-not $isCI) {
+    Read-Host -Prompt "Press Enter to exit"
+}
