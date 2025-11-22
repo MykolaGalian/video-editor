@@ -7,9 +7,10 @@ from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtCore import Qt, QUrl
 
-from models import Segment, ExportSettings
+from models import Segment, ExportSettings, SourceClip
 from video_engine import FFmpegCommandBuilder
 from widgets import TimelineSlider, HelpDialog, ExportThread
+from timeline_manager import TimelineManager
 
 class MainWindow(QMainWindow):
     """Main application window."""
@@ -22,12 +23,13 @@ class MainWindow(QMainWindow):
         self.ffmpeg_builder = FFmpegCommandBuilder()
 
         # Data
+        self.timeline_manager = TimelineManager()
+        self.current_clip: Optional[SourceClip] = None
+        
         self.start_time_ms: int = 0
         self.end_time_ms: int = 0
         self.segments: List[Segment] = []
         self.external_audio_path: Optional[str] = None
-        self.appended_video_path: Optional[str] = None
-        self.cached_append_duration: int = 0
         self.export_thread: Optional[ExportThread] = None
         self.is_previewing: bool = False
 
@@ -145,16 +147,13 @@ class MainWindow(QMainWindow):
         append_layout = QHBoxLayout()
         layout.addLayout(append_layout)
 
-        self.append_label = QLabel("No append video selected")
-        append_layout.addWidget(self.append_label)
-
-        self.select_append_btn = QPushButton("Select Video to Append")
-        self.select_append_btn.clicked.connect(self.select_append_video)
-        append_layout.addWidget(self.select_append_btn)
-
-        self.clear_append_btn = QPushButton("Clear")
-        self.clear_append_btn.clicked.connect(self.clear_append_video)
-        append_layout.addWidget(self.clear_append_btn)
+        self.add_clip_btn = QPushButton("Add Clip to Timeline")
+        self.add_clip_btn.clicked.connect(self.add_clip)
+        append_layout.addWidget(self.add_clip_btn)
+        
+        self.clear_timeline_btn = QPushButton("Clear Timeline")
+        self.clear_timeline_btn.clicked.connect(self.clear_timeline)
+        append_layout.addWidget(self.clear_timeline_btn)
 
         # Export Controls Layout
         export_layout = QHBoxLayout()
@@ -199,7 +198,8 @@ class MainWindow(QMainWindow):
         self.media_player.setVideoOutput(self.video_widget)
 
         self.media_player.positionChanged.connect(self.position_changed)
-        self.media_player.durationChanged.connect(self.duration_changed)
+        self.media_player.mediaStatusChanged.connect(self.media_status_changed)
+        # self.media_player.durationChanged.connect(self.duration_changed) # We handle duration manually now
 
     def _check_ffmpeg(self):
         if not self.ffmpeg_builder.get_ffmpeg_path():
@@ -232,14 +232,10 @@ class MainWindow(QMainWindow):
             return 0
 
     def update_total_duration(self):
-        main_len_ms = sum(seg.end_ms - seg.start_ms for seg in self.segments)
-        
-        append_len_ms = 0
-        if self.appended_video_path:
-            append_len_ms = self.cached_append_duration
-            
-        total_ms = main_len_ms + append_len_ms
+        total_ms = self.timeline_manager.get_total_duration()
         self.duration_label.setText(f"Total Duration: {self.format_time(total_ms)}")
+        self.slider.setRange(0, total_ms)
+        self.end_label.setText(f"End: {self.format_time(total_ms)}")
 
     def show_help(self):
         dialog = HelpDialog(self)
@@ -251,12 +247,57 @@ class MainWindow(QMainWindow):
     def open_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.mp4 *.webm *.mkv)")
         if file_name:
-            self.path_label.setText(file_name)
-            self.segments = [] # Clear segments from previous video
+            # New Project behavior
+            self.timeline_manager.clear()
+            self.segments = []
+            
+            duration = self.get_external_duration(file_name)
+            if duration == 0:
+                QMessageBox.warning(self, "Error", "Could not determine video duration.")
+                return
+
+            self.timeline_manager.add_clip(file_name, duration)
+            self.current_clip = self.timeline_manager.playlist[0]
+            
+            self.path_label.setText(f"Playlist: 1 clip ({os.path.basename(file_name)})")
+            
+            # Initialize segments with global duration
+            self.segments = [Segment(0, duration)]
+            self.slider.set_segments(self.segments)
+            
             self.media_player.setSource(QUrl.fromLocalFile(file_name))
             self.play_btn.setEnabled(True)
             self.play_video()
-            # update_total_duration will be called in duration_changed
+            self.update_total_duration()
+
+    def add_clip(self):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Add Clip", "", "Video Files (*.mp4 *.webm *.mkv)")
+        if file_name:
+            duration = self.get_external_duration(file_name)
+            if duration == 0:
+                QMessageBox.warning(self, "Error", "Could not determine video duration.")
+                return
+                
+            self.timeline_manager.add_clip(file_name, duration)
+            
+            # Update segments - add new segment for the new clip
+            # Actually, segments are "Keep" zones. If we add a clip, we probably want to keep it by default.
+            new_clip = self.timeline_manager.playlist[-1]
+            self.segments.append(Segment(new_clip.global_start_ms, new_clip.global_end_ms))
+            self.segments.sort(key=lambda x: x.start_ms)
+            self.slider.set_segments(self.segments)
+            
+            self.path_label.setText(f"Playlist: {len(self.timeline_manager.playlist)} clips")
+            self.update_total_duration()
+
+    def clear_timeline(self):
+        self.timeline_manager.clear()
+        self.segments = []
+        self.slider.set_segments([])
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
+        self.path_label.setText("No file selected")
+        self.update_total_duration()
 
     def play_video(self):
         self.is_previewing = False
@@ -269,13 +310,19 @@ class MainWindow(QMainWindow):
         self.media_player.stop()
 
     def position_changed(self, position):
-        if not self.slider.isSliderDown():
-            self.slider.setValue(position)
+        if not self.current_clip:
+            return
+
+        # Calculate global position
+        global_pos = self.current_clip.global_start_ms + position
         
-        # Smart Player / Gap Jumping Logic
+        if not self.slider.isSliderDown():
+            self.slider.setValue(global_pos)
+        
+        # Smart Player / Gap Jumping Logic (Global Time)
         in_segment = False
         for segment in self.segments:
-            if segment.start_ms <= position < segment.end_ms:
+            if segment.start_ms <= global_pos < segment.end_ms:
                 in_segment = True
                 break
         
@@ -283,27 +330,47 @@ class MainWindow(QMainWindow):
             # Find nearest NEXT segment
             next_seg_start = None
             for segment in self.segments:
-                if segment.start_ms > position:
+                if segment.start_ms > global_pos:
                     next_seg_start = segment.start_ms
                     break
             
             if next_seg_start is not None:
-                self.media_player.setPosition(next_seg_start)
+                self.set_position(next_seg_start)
             else:
-                if self.segments and position > self.segments[-1].end_ms:
+                if self.segments and global_pos > self.segments[-1].end_ms:
                      self.media_player.pause()
 
+    def media_status_changed(self, status):
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            next_clip = self.timeline_manager.get_next_clip(self.current_clip)
+            if next_clip:
+                self.current_clip = next_clip
+                self.media_player.setSource(QUrl.fromLocalFile(next_clip.path))
+                self.media_player.play()
+        elif status == QMediaPlayer.MediaStatus.InvalidMedia:
+            QMessageBox.critical(self, "Playback Error", 
+                                 f"Could not play video: {self.current_clip.path if self.current_clip else 'Unknown'}\n"
+                                 "The file might be corrupted or the format is not supported.")
+
     def duration_changed(self, duration):
-        self.slider.setRange(0, duration)
-        self.end_time_ms = duration
-        if not self.segments:
-            self.segments = [Segment(0, duration)]
-            self.slider.set_segments(self.segments)
-        self.end_label.setText(f"End: {self.format_time(duration)}")
-        self.update_total_duration()
+        # We handle duration manually via timeline_manager
+        pass
 
     def set_position(self, position):
-        self.media_player.setPosition(position)
+        """Seek to global position."""
+        clip, local_ms = self.timeline_manager.get_clip_at_global_time(position)
+        
+        if not clip:
+            return
+
+        if clip != self.current_clip:
+            self.current_clip = clip
+            self.media_player.setSource(QUrl.fromLocalFile(clip.path))
+            # If we were playing, keep playing. If paused, stay paused?
+            # For simplicity, let's play if we are dragging slider or jumping gaps
+            self.media_player.play() 
+        
+        self.media_player.setPosition(local_ms)
 
     def format_time(self, ms):
         seconds = (ms // 1000) % 60
@@ -312,15 +379,16 @@ class MainWindow(QMainWindow):
         return f"{hours:02}:{minutes:02}:{seconds:02}"
 
     def set_start(self):
-        self.start_time_ms = self.media_player.position()
+        # Use slider value which is Global Time
+        self.start_time_ms = self.slider.value()
         if self.start_time_ms > self.end_time_ms:
-            self.end_time_ms = self.media_player.duration()
+            self.end_time_ms = self.timeline_manager.get_total_duration()
             self.end_label.setText(f"End: {self.format_time(self.end_time_ms)}")
         self.start_label.setText(f"Start: {self.format_time(self.start_time_ms)}")
         self.update_slider_selection()
 
     def set_end(self):
-        self.end_time_ms = self.media_player.position()
+        self.end_time_ms = self.slider.value()
         if self.end_time_ms < self.start_time_ms:
             self.start_time_ms = 0
             self.start_label.setText(f"Start: {self.format_time(self.start_time_ms)}")
@@ -329,9 +397,8 @@ class MainWindow(QMainWindow):
 
     def reset_trim(self):
         self.start_time_ms = 0
-        self.end_time_ms = self.media_player.duration()
+        self.end_time_ms = self.timeline_manager.get_total_duration()
         self.start_label.setText(f"Start: {self.format_time(self.start_time_ms)}")
-        self.end_label.setText(f"End: {self.format_time(self.end_time_ms)}")
         self.end_label.setText(f"End: {self.format_time(self.end_time_ms)}")
         self.update_slider_selection()
         self.update_total_duration()
@@ -382,7 +449,7 @@ class MainWindow(QMainWindow):
         self.update_total_duration()
 
     def preview_cut(self):
-        self.media_player.setPosition(self.start_time_ms)
+        self.set_position(self.start_time_ms)
         self.media_player.play()
 
     def load_external_audio(self):
@@ -398,19 +465,7 @@ class MainWindow(QMainWindow):
         self.external_audio_path = None
         self.audio_status_label.setText("Audio: Original")
 
-    def select_append_video(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select Video to Append", "", "Video Files (*.mp4 *.webm *.mkv)")
-        if file_name:
-            self.appended_video_path = file_name
-            self.cached_append_duration = self.get_external_duration(file_name)
-            self.append_label.setText(f"Append: {os.path.basename(file_name)}")
-            self.update_total_duration()
-
-    def clear_append_video(self):
-        self.appended_video_path = None
-        self.cached_append_duration = 0
-        self.append_label.setText("No append video selected")
-        self.update_total_duration()
+    # Append methods removed
 
     def update_bitrate_label(self, value):
         step = 5
@@ -448,13 +503,12 @@ class MainWindow(QMainWindow):
             format=os.path.splitext(output_path)[1][1:], # Remove dot
             bitrate_mbps=self.bitrate_slider.value(),
             use_external_audio=bool(self.external_audio_path),
-            external_audio_path=self.external_audio_path,
-            append_video_path=self.appended_video_path
+            external_audio_path=self.external_audio_path
         )
 
         try:
             command = self.ffmpeg_builder.build_command(
-                input_path=self.path_label.text(),
+                playlist=self.timeline_manager.playlist,
                 segments=self.segments,
                 settings=settings
             )
@@ -499,8 +553,8 @@ class MainWindow(QMainWindow):
         self.preview_btn.setEnabled(enabled)
         self.load_audio_btn.setEnabled(enabled)
         self.clear_audio_btn.setEnabled(enabled)
-        self.select_append_btn.setEnabled(enabled)
-        self.clear_append_btn.setEnabled(enabled)
+        self.add_clip_btn.setEnabled(enabled)
+        self.clear_timeline_btn.setEnabled(enabled)
         self.export_btn.setEnabled(enabled)
 
     def closeEvent(self, event):

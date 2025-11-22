@@ -15,4 +15,12 @@ class ExportSettings:
     bitrate_mbps: int
     use_external_audio: bool = False
     external_audio_path: Optional[str] = None
-    append_video_path: Optional[str] = None
+    external_audio_path: Optional[str] = None
+
+@dataclass
+class SourceClip:
+    """Class representing a source video file in the timeline."""
+    path: str
+    duration_ms: int
+    global_start_ms: int = 0
+    global_end_ms: int = 0
