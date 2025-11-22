@@ -26,9 +26,16 @@ Run the application:
 python main.py
 ```
 
+### Workflow
+1. **Load Video**: Opens a file and starts a new timeline.
+2. **Add Clip**: Appends more videos to the existing timeline.
+3. **Edit**: The timeline represents all clips stitched together. You can cut/trim anywhere across file boundaries.
+
+
 ### Features
-- **Trimming**: Select "Keep Selected" or "Remove Selected" segments.
-- **Appending**: Add a video to the end of your edit.
-- **External Audio**: Replace the audio track with an external file.
+- **Virtual Global Timeline**: Edit multiple video files as a single continuous sequence.
+- **Trimming**: Select "Keep Selected" or "Remove Selected" segments across the entire timeline.
+- **Appending**: Add clips to the timeline at any time.
+- **External Audio**: Replace the audio track for the entire project.
 - **Smart Player**: Skips over removed segments during preview.
 - **Real-time Duration**: See the exact length of your final video.
