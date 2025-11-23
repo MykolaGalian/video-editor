@@ -3,7 +3,8 @@ import subprocess
 from typing import List, Optional
 import sys
 from PyQt6.QtWidgets import (QMainWindow, QPushButton, QLabel, QSlider, QVBoxLayout, 
-                             QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, QProgressBar, QComboBox)
+                             QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, 
+                             QProgressBar, QComboBox, QGroupBox, QMenu)
 from PyQt6.QtGui import QIcon
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -52,169 +53,225 @@ class MainWindow(QMainWindow):
         self._check_ffmpeg()
 
     def _init_ui(self):
-        """Initialize UI components."""
+        """Initialize UI components with a structured layout."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+
+        # --- ZONE 1: VIDEO & TIMELINE (Top) ---
+        video_group = QGroupBox()
+        video_group.setStyleSheet("QGroupBox { border: 0px; }") # Minimalist
+        video_layout = QVBoxLayout(video_group)
+        video_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Path Label
+        self.path_label = QLabel("No file selected")
+        self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        video_layout.addWidget(self.path_label)
 
         # Video Widget
         self.video_widget = QVideoWidget()
-        layout.addWidget(self.video_widget, 1)
+        video_layout.addWidget(self.video_widget, 1)
 
-        # File Path Label
-        self.path_label = QLabel("No file selected")
-        layout.addWidget(self.path_label)
+        # Timeline Row
+        timeline_layout = QHBoxLayout()
+        
+        self.start_label = QLabel("00:00:00")
+        timeline_layout.addWidget(self.start_label)
 
-        # Slider (Timeline)
         self.slider = TimelineSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 0)
         self.slider.sliderMoved.connect(self.set_position)
-        layout.addWidget(self.slider)
+        timeline_layout.addWidget(self.slider, 1)
 
-        # Control Buttons Layout
-        controls_layout = QHBoxLayout()
-        layout.addLayout(controls_layout)
+        self.end_label = QLabel("00:00:00")
+        timeline_layout.addWidget(self.end_label)
+        
+        video_layout.addLayout(timeline_layout)
+        
+        main_layout.addWidget(video_group, 1) # Expandable
 
-        # Load Button
-        self.load_btn = QPushButton("Загрузить видео")
-        self.load_btn.clicked.connect(self.open_file)
-        controls_layout.addWidget(self.load_btn)
+        # --- ZONE 2: TOOLBAR (Bottom, Fixed Height) ---
+        tools_group = QGroupBox()
+        tools_group.setFixedHeight(180) 
+        tools_layout = QHBoxLayout(tools_group)
+        
+        # SECTION A: EDITING TOOLS (Left)
+        edit_layout = QVBoxLayout()
+        edit_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        edit_label = QLabel("<b>Edit</b>")
+        edit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        edit_layout.addWidget(edit_label)
+        
+        # Edit Buttons Row 1
+        edit_btns_1 = QHBoxLayout()
+        self.set_start_btn = QPushButton("[ In")
+        self.set_start_btn.setToolTip("Set Start Point")
+        self.set_start_btn.clicked.connect(self.set_start)
+        edit_btns_1.addWidget(self.set_start_btn)
+        
+        self.set_end_btn = QPushButton("Out ]")
+        self.set_end_btn.setToolTip("Set End Point")
+        self.set_end_btn.clicked.connect(self.set_end)
+        edit_btns_1.addWidget(self.set_end_btn)
+        edit_layout.addLayout(edit_btns_1)
+        
+        # Edit Buttons Row 2
+        edit_btns_2 = QHBoxLayout()
+        self.apply_cut_btn = QPushButton("✂ Cut")
+        self.apply_cut_btn.setToolTip("Remove Selected Area")
+        self.apply_cut_btn.setStyleSheet("background-color: #c62828; color: white; font-weight: bold;") 
+        self.apply_cut_btn.clicked.connect(self.apply_cut)
+        edit_btns_2.addWidget(self.apply_cut_btn)
+        
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.reset_trim)
+        edit_btns_2.addWidget(self.reset_btn)
+        edit_layout.addLayout(edit_btns_2)
 
-        # Help Button
-        self.help_btn = QPushButton("?")
-        self.help_btn.setFixedWidth(50)
-        self.help_btn.clicked.connect(self.show_help)
-        controls_layout.addWidget(self.help_btn)
-
-        # Play Button
-        self.play_btn = QPushButton()
-        self.play_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
-        self.play_btn.clicked.connect(self.play_video)
-        controls_layout.addWidget(self.play_btn)
-
-        # Pause Button
-        self.pause_btn = QPushButton()
-        self.pause_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
-        self.pause_btn.clicked.connect(self.pause_video)
-        controls_layout.addWidget(self.pause_btn)
-
-        # Stop Button
+        # Preview Cut (Hidden/Optional or Small)
+        self.preview_btn = QPushButton("Preview Cut")
+        self.preview_btn.clicked.connect(self.preview_cut)
+        edit_layout.addWidget(self.preview_btn)
+        
+        tools_layout.addLayout(edit_layout)
+        tools_layout.addStretch() # Separator
+        
+        # SECTION B: TRANSPORT & CONTENT (Center)
+        transport_layout = QVBoxLayout()
+        transport_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        transport_label = QLabel("<b>Playback & Clips</b>")
+        transport_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        transport_layout.addWidget(transport_label)
+        
+        # Player Controls
+        player_controls = QHBoxLayout()
         self.stop_btn = QPushButton()
         self.stop_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         self.stop_btn.clicked.connect(self.stop_video)
-        controls_layout.addWidget(self.stop_btn)
-
-        # Trim Controls Layout
-        trim_layout = QHBoxLayout()
-        layout.addLayout(trim_layout)
-
-        # Apply Cut Button
-        self.apply_cut_btn = QPushButton("Apply Cut (Remove Selection)")
-        self.apply_cut_btn.clicked.connect(self.apply_cut)
-        trim_layout.addWidget(self.apply_cut_btn)
-
-        # Start Time
-        self.start_label = QLabel("Start: 00:00:00")
-        trim_layout.addWidget(self.start_label)
-
-        self.set_start_btn = QPushButton("[ Set Start ]")
-        self.set_start_btn.clicked.connect(self.set_start)
-        trim_layout.addWidget(self.set_start_btn)
-
-        # End Time
-        self.set_end_btn = QPushButton("[ Set End ]")
-        self.set_end_btn.clicked.connect(self.set_end)
-        trim_layout.addWidget(self.set_end_btn)
-
-        self.end_label = QLabel("End: 00:00:00")
-        trim_layout.addWidget(self.end_label)
-
-        # Reset & Preview
-        self.reset_btn = QPushButton("Reset")
-        self.reset_btn.clicked.connect(self.reset_trim)
-        trim_layout.addWidget(self.reset_btn)
-
-        self.preview_btn = QPushButton("Preview Cut")
-        self.preview_btn.clicked.connect(self.preview_cut)
-        trim_layout.addWidget(self.preview_btn)
-
-        # Audio Controls Layout
-        audio_layout = QHBoxLayout()
-        layout.addLayout(audio_layout)
-
-        # Load External Audio Button
-        self.load_audio_btn = QPushButton("Load External Audio")
-        self.load_audio_btn.clicked.connect(self.load_external_audio)
-        audio_layout.addWidget(self.load_audio_btn)
-
-        # Clear Audio Button
-        self.clear_audio_btn = QPushButton("Clear Audio")
-        self.clear_audio_btn.clicked.connect(self.clear_external_audio)
-        audio_layout.addWidget(self.clear_audio_btn)
-
-        # Audio Status Label
-        self.audio_status_label = QLabel("Audio: Original")
-        audio_layout.addWidget(self.audio_status_label)
-
-        # Append Video Controls Layout
-        append_layout = QHBoxLayout()
-        layout.addLayout(append_layout)
-
-        self.add_clip_btn = QPushButton("Add Clip to Timeline")
-        self.add_clip_btn.clicked.connect(self.add_clip)
-        append_layout.addWidget(self.add_clip_btn)
+        player_controls.addWidget(self.stop_btn)
         
-        self.clear_timeline_btn = QPushButton("Clear Timeline")
+        self.play_btn = QPushButton()
+        self.play_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.play_btn.clicked.connect(self.play_video)
+        player_controls.addWidget(self.play_btn)
+        
+        self.pause_btn = QPushButton()
+        self.pause_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
+        self.pause_btn.clicked.connect(self.pause_video)
+        player_controls.addWidget(self.pause_btn)
+        transport_layout.addLayout(player_controls)
+        
+        # Content Controls
+        content_controls = QHBoxLayout()
+        
+        self.add_clip_btn = QPushButton("Add Clip (+)")
+        self.add_clip_btn.clicked.connect(self.add_clip)
+        content_controls.addWidget(self.add_clip_btn)
+        
+        self.clear_timeline_btn = QPushButton("Clear")
         self.clear_timeline_btn.clicked.connect(self.clear_timeline)
-        append_layout.addWidget(self.clear_timeline_btn)
+        content_controls.addWidget(self.clear_timeline_btn)
+        
+        # Audio Button with Menu
+        self.load_audio_btn = QPushButton("Music ▾")
+        self.load_audio_menu = QMenu()
+        self.load_audio_action = self.load_audio_menu.addAction("Load External Audio")
+        self.load_audio_action.triggered.connect(self.load_external_audio)
+        self.clear_audio_action = self.load_audio_menu.addAction("Clear Audio")
+        self.clear_audio_action.triggered.connect(self.clear_external_audio)
+        self.load_audio_btn.setMenu(self.load_audio_menu)
+        content_controls.addWidget(self.load_audio_btn)
+        
+        transport_layout.addLayout(content_controls)
 
-        # Export Controls Layout
-        export_layout = QHBoxLayout()
-        layout.addLayout(export_layout)
+        # Keep references to old buttons to avoid errors if referenced elsewhere, 
+        # though we should check usages. 
+        # self.load_btn was "New Project". I'll alias it to add_clip or just keep it hidden/removed?
+        # Let's keep it as a hidden member if needed, or just remove it. 
+        # Wait, open_file is useful for "New Project". 
+        # I'll add a small "New" button or just rely on Add Clip?
+        # "Add Clip" adds to timeline. "Open File" clears and adds.
+        # I'll add a "New" button to content controls.
+        self.load_btn = QPushButton("New")
+        self.load_btn.clicked.connect(self.open_file)
+        content_controls.insertWidget(0, self.load_btn)
 
-        # Bitrate Settings
-        bitrate_layout = QVBoxLayout()
-        export_layout.addLayout(bitrate_layout)
+        # Audio status label - maybe put it in transport layout?
+        self.audio_status_label = QLabel("Audio: Original")
+        self.audio_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        transport_layout.addWidget(self.audio_status_label)
 
+        # Help button
+        self.help_btn = QPushButton("?")
+        self.help_btn.setFixedWidth(30)
+        self.help_btn.clicked.connect(self.show_help)
+        # Add to top right of transport or somewhere?
+        # Let's add it to the edit layout top right?
+        # Or just append to transport layout
+        
+        tools_layout.addLayout(transport_layout)
+        tools_layout.addStretch()
+        
+        # SECTION C: EXPORT (Right)
+        export_layout = QVBoxLayout()
+        export_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        export_label = QLabel("<b>Export</b>")
+        export_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        export_layout.addWidget(export_label)
+        
+        # Bitrate
         self.bitrate_label = QLabel("Bitrate: 25 Mbps")
-        bitrate_layout.addWidget(self.bitrate_label)
-
+        export_layout.addWidget(self.bitrate_label)
         self.bitrate_slider = QSlider(Qt.Orientation.Horizontal)
         self.bitrate_slider.setRange(5, 60)
         self.bitrate_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.bitrate_slider.setTickInterval(5)
+        self.bitrate_slider.setValue(25)
         self.bitrate_slider.valueChanged.connect(self.update_bitrate_label)
-        self.bitrate_slider.setValue(25) 
-        bitrate_layout.addWidget(self.bitrate_slider)
-
-        # FPS Selection
-        fps_layout = QVBoxLayout()
-        export_layout.addLayout(fps_layout)
+        export_layout.addWidget(self.bitrate_slider)
         
+        # FPS
+        fps_row = QHBoxLayout()
         self.fps_label = QLabel("FPS:")
-        fps_layout.addWidget(self.fps_label)
-        
+        fps_row.addWidget(self.fps_label)
         self.fps_combo = QComboBox()
         self.fps_combo.addItems(["59.94", "50", "29.97", "25", "23.976"])
         self.fps_combo.setCurrentText("23.976")
-        fps_layout.addWidget(self.fps_combo)
-
-        # Total Duration Label
-        self.duration_label = QLabel("Total Duration: 00:00:00")
-        self.duration_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        fps_row.addWidget(self.fps_combo)
+        export_layout.addLayout(fps_row)
+        
+        # Duration Label (Effective)
+        self.duration_label = QLabel("Total: 00:00:00")
         export_layout.addWidget(self.duration_label)
 
         # Export Button
-        self.export_btn = QPushButton("Export Video")
-        self.export_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+        self.export_btn = QPushButton("EXPORT")
+        self.export_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
         self.export_btn.clicked.connect(self.start_export)
         export_layout.addWidget(self.export_btn)
-
+        
         # Progress Bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0) # Indeterminate
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setVisible(False)
         export_layout.addWidget(self.progress_bar)
+        
+        tools_layout.addLayout(export_layout)
+        
+        main_layout.addWidget(tools_group)
+        
+        # Add Help button to the very bottom right or top right?
+        # Let's put it in the main layout top right?
+        # Or just add it to the tools group?
+        # I'll add it to the Edit layout for now, or maybe just float it?
+        # I'll add it to the Edit layout.
+        edit_layout.addWidget(self.help_btn)
+
+        # Unused buttons from old UI that need to be defined to avoid errors if referenced:
+        self.clear_audio_btn = QPushButton() # Dummy, action moved to menu
 
     def _init_media_player(self):
         self.media_player = QMediaPlayer()
