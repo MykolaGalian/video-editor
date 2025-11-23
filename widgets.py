@@ -3,7 +3,7 @@ import subprocess
 from typing import List
 from PyQt6.QtWidgets import (QSlider, QDialog, QVBoxLayout, QTextBrowser, QPushButton, 
                              QStyle, QStyleOptionSlider)
-from PyQt6.QtCore import Qt, QRect, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QPainter, QColor
 
 from models import Segment
@@ -67,12 +67,17 @@ class HelpDialog(QDialog):
 
 
 class TimelineSlider(QSlider):
-    """Custom slider to visualize video segments and selection."""
+    """Custom slider to visualize video segments, selection, and time scale."""
     def __init__(self, orientation=Qt.Orientation.Horizontal, parent=None):
         super().__init__(orientation, parent)
         self.start_val = 0
         self.end_val = 0
         self.segments: List[Segment] = []
+
+    def sizeHint(self):
+        """Increase height to accommodate time labels."""
+        s = super().sizeHint()
+        return QSize(s.width(), s.height() + 30)
 
     def set_selection(self, start: int, end: int):
         self.start_val = start
@@ -83,6 +88,20 @@ class TimelineSlider(QSlider):
         self.segments = segments
         self.update()
 
+    def format_time_short(self, ms: int) -> str:
+        """Format time as MM:SS or H:MM:SS."""
+        seconds = ms // 1000
+        minutes = seconds // 60
+        hours = minutes // 60
+        
+        seconds %= 60
+        minutes %= 60
+        
+        if self.maximum() < 3600000: # Less than 1 hour
+            return f"{minutes:02}:{seconds:02}"
+        else:
+            return f"{hours}:{minutes:02}:{seconds:02}"
+
     def paintEvent(self, event):
         painter = QPainter(self)
         opt = QStyleOptionSlider()
@@ -91,40 +110,82 @@ class TimelineSlider(QSlider):
         # 1. Draw Groove (Background)
         opt.subControls = QStyle.SubControl.SC_SliderGroove
         self.style().drawComplexControl(QStyle.ComplexControl.CC_Slider, opt, painter, self)
+        
+        groove_rect = self.style().subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self)
+        total_range = self.maximum() - self.minimum()
+
+        # Helper to map value to x coordinate
+        def val_to_x(val):
+            if total_range <= 0: return groove_rect.left()
+            percent = (val - self.minimum()) / total_range
+            return int(groove_rect.left() + percent * groove_rect.width())
 
         # 2. Draw Segments (Green) and Selection (Blue)
-        if self.maximum() > 0:
-            groove_rect = self.style().subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self)
-            total_range = self.maximum() - self.minimum()
-            
-            if total_range > 0:
-                def val_to_x(val):
-                    percent = (val - self.minimum()) / total_range
-                    return int(groove_rect.left() + percent * groove_rect.width())
+        if self.maximum() > 0 and total_range > 0:
+            # Draw Segments
+            painter.setBrush(QColor(0, 200, 0))  # Green for kept segments
+            painter.setPen(Qt.PenStyle.NoPen)
+            for segment in self.segments:
+                x1 = val_to_x(segment.start_ms)
+                x2 = val_to_x(segment.end_ms)
+                # Ensure width is at least 1px if segment exists
+                w = max(1, x2 - x1)
+                rect = QRect(x1, groove_rect.top(), w, groove_rect.height())
+                painter.drawRect(rect)
 
-                # Draw Segments
-                painter.setBrush(QColor(0, 200, 0))  # Green for kept segments
-                painter.setPen(Qt.PenStyle.NoPen)
-                for segment in self.segments:
-                    x1 = val_to_x(segment.start_ms)
-                    x2 = val_to_x(segment.end_ms)
-                    # Ensure width is at least 1px if segment exists
-                    w = max(1, x2 - x1)
-                    rect = QRect(x1, groove_rect.top(), w, groove_rect.height())
-                    painter.drawRect(rect)
+            # Draw Selection (Blue, semi-transparent)
+            if self.end_val > self.start_val:
+                x1 = val_to_x(self.start_val)
+                x2 = val_to_x(self.end_val)
+                selection_rect = QRect(x1, groove_rect.top(), x2 - x1, groove_rect.height())
+                painter.fillRect(selection_rect, QColor(0, 0, 200, 100))
 
-                # Draw Selection (Blue, semi-transparent)
-                if self.end_val > self.start_val:
-                    x1 = val_to_x(self.start_val)
-                    x2 = val_to_x(self.end_val)
-                    selection_rect = QRect(x1, groove_rect.top(), x2 - x1, groove_rect.height())
-                    painter.fillRect(selection_rect, QColor(0, 0, 200, 100))
+            # 3. Draw Time Scale (Ticks and Labels)
+            min_pixel_spacing = 80
+            widget_width = self.width()
+            if widget_width > 0:
+                min_ms_step = (total_range / widget_width) * min_pixel_spacing
+                
+                # Allowed steps: 1s, 5s, 10s, 30s, 1m, 5m, 10m, 30m, 1h
+                allowed_steps = [
+                    1000, 5000, 10000, 30000, 
+                    60000, 300000, 600000, 1800000, 
+                    3600000
+                ]
+                
+                draw_step = allowed_steps[-1]
+                for step in allowed_steps:
+                    if step >= min_ms_step:
+                        draw_step = step
+                        break
+                
+                painter.setPen(Qt.GlobalColor.gray)
+                font = painter.font()
+                font.setPointSize(8)
+                painter.setFont(font)
+                
+                # Start from the first multiple of draw_step
+                start_t = (self.minimum() // draw_step) * draw_step
+                if start_t < self.minimum():
+                    start_t += draw_step
+                    
+                for t in range(start_t, self.maximum() + 1, draw_step):
+                    x = val_to_x(t)
+                    
+                    # Draw Tick
+                    tick_y = groove_rect.bottom() + 2
+                    painter.drawLine(x, tick_y, x, tick_y + 5)
+                    
+                    # Draw Text
+                    time_str = self.format_time_short(t)
+                    text_rect = QRect(x - 30, tick_y + 5, 60, 15)
+                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, time_str)
 
-        # 3. Draw Handle
+        # 4. Draw Handle
         opt.subControls = QStyle.SubControl.SC_SliderHandle
         self.style().drawComplexControl(QStyle.ComplexControl.CC_Slider, opt, painter, self)
 
-        # 4. Draw Playhead
+        # 5. Draw Playhead
         handle_rect = self.style().subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderHandle, self)
         painter.setPen(QColor(255, 255, 255))
         center_x = handle_rect.center().x()
