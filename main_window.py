@@ -249,10 +249,29 @@ class MainWindow(QMainWindow):
 
         # Export Button
         self.export_btn = QPushButton("EXPORT")
-        self.export_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50; 
+                color: white; 
+                font-weight: bold; 
+                padding: 10px;
+                border-radius: 5px;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #aaaaaa;
+            }
+        """)
         self.export_btn.clicked.connect(self.start_export)
         export_layout.addWidget(self.export_btn)
         
+        # Export Status Label
+        self.export_status_label = QLabel("Exporting...")
+        self.export_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.export_status_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+        self.export_status_label.setVisible(False)
+        export_layout.addWidget(self.export_status_label)
+
         # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
@@ -321,7 +340,7 @@ class MainWindow(QMainWindow):
 
         # Effective duration is the sum of all "Keep" segments
         effective_ms = sum(seg.end_ms - seg.start_ms for seg in self.segments)
-        self.duration_label.setText(f"Total Duration: {self.format_time(effective_ms)}")
+        self.duration_label.setText(f"Final Duration: {self.format_time(effective_ms)}")
 
     def show_help(self):
         dialog = HelpDialog(self)
@@ -611,11 +630,15 @@ class MainWindow(QMainWindow):
 
     def on_export_started(self):
         self.set_controls_enabled(False)
+        self.export_btn.setVisible(False)
+        self.export_status_label.setVisible(True)
         self.progress_bar.setVisible(True)
         self.path_label.setText("Exporting... Please wait.")
 
     def on_export_finished(self):
         self.set_controls_enabled(True)
+        self.export_btn.setVisible(True)
+        self.export_status_label.setVisible(False)
         self.progress_bar.setVisible(False)
         self.path_label.setText(self.media_player.source().toLocalFile())
         QMessageBox.information(self, "Success", "Export completed successfully!")
@@ -623,6 +646,8 @@ class MainWindow(QMainWindow):
 
     def on_export_error(self, error_msg):
         self.set_controls_enabled(True)
+        self.export_btn.setVisible(True)
+        self.export_status_label.setVisible(False)
         self.progress_bar.setVisible(False)
         self.path_label.setText(self.media_player.source().toLocalFile())
         QMessageBox.critical(self, "Export Error", error_msg)
