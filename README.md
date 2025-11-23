@@ -1,4 +1,6 @@
-# Open 4K Video Editor
+# Open Video Editor
+<img width="1202" height="688" alt="Screenshot 2025-11-23 170710" src="https://github.com/user-attachments/assets/253ebffe-b251-4c53-a80f-ae23032815b2" />
+
 
 A simple yet powerful video editor built with Python and PyQt6, designed for fast trimming and appending of 4K video files.
 
