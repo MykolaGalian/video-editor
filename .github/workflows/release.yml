@@ -4,12 +4,13 @@ on:
   release:
     types: [published]
 
-jobs:
-  build:
-    runs-on: windows-latest
-    permissions:
-      contents: write
+permissions:
+  contents: write
 
+jobs:
+  # --- ЗАДАЧА 1: СБОРКА WINDOWS ---
+  build-windows:
+    runs-on: windows-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -19,11 +20,54 @@ jobs:
       with:
         python-version: '3.11'
 
+    # Важно явно установить зависимости перед запуском скрипта сборки
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller Pillow
+        if (Test-Path requirements.txt) { pip install -r requirements.txt }
+
+    # Запускаем ваш PowerShell скрипт (убедитесь, что имя совпадает)
     - name: Build with PowerShell
       run: .\build_exe.ps1
 
-    - name: Upload Release Asset
+    - name: Upload Windows Asset
       uses: softprops/action-gh-release@v2
       with:
-        # Кавычки обязательны из-за пробелов в имени файла
         files: dist/*.exe
+
+  # --- ЗАДАЧА 2: СБОРКА LINUX ---
+  build-linux:
+    runs-on: ubuntu-latest # Собираем на Ubuntu для максимальной совместимости (включая Arch)
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    # Установка системных библиотек, необходимых для PyQt6 в среде CI
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libxcb-cursor0 libegl1 libopengl0
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller Pillow
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    # Делаем скрипт исполняемым и запускаем
+    - name: Build with Bash
+      run: |
+        chmod +x build.sh
+        ./build.sh
+
+    - name: Upload Linux Asset
+      uses: softprops/action-gh-release@v2
+      with:
+        # Указываем точный путь к бинарнику (имя файла из build.sh)
+        files: dist/Open4KEditor
