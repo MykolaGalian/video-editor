@@ -23,7 +23,9 @@ class FFmpegCommandBuilder:
             return ffmpeg_path
         
         # Check current directory
-        local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg.exe")
+        binary_name = "ffmpeg.exe" if os.name == 'nt' else "ffmpeg"
+        local_ffmpeg = os.path.join(os.getcwd(), binary_name)
+ 
         if os.path.exists(local_ffmpeg):
             return local_ffmpeg
             

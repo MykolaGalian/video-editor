@@ -326,15 +326,21 @@ class MainWindow(QMainWindow):
 
     def get_external_duration(self, file_path: str) -> int:
         try:
+            # 1. Поиск путей
             ffmpeg_path = self.ffmpeg_builder.get_ffmpeg_path()
-            if not ffmpeg_path:
-                return 0
+            if not ffmpeg_path: return 0
             
-            ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
+            ffprobe_name = "ffprobe.exe" if os.name == 'nt' else "ffprobe"
+            ffmpeg_dir = os.path.dirname(ffmpeg_path)
+            ffprobe_path = os.path.join(ffmpeg_dir, ffprobe_name)
+            
             if not os.path.exists(ffprobe_path):
-                # Fallback to just "ffprobe" if ffmpeg_path doesn't have it in the same dir
-                ffprobe_path = "ffprobe"
+                import shutil
+                ffprobe_path = shutil.which("ffprobe")
+                if not ffprobe_path: return 0
                 
+            # 2. Формируем команду (МАКСИМАЛЬНО ПРОСТУЮ)
+            # Убрали -vn и -sn, так как они вызывали ошибку синтаксиса
             cmd = [
                 ffprobe_path,
                 "-v", "error",
@@ -343,10 +349,23 @@ class MainWindow(QMainWindow):
                 file_path
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            duration_sec = float(result.stdout.strip())
-            return int(duration_sec * 1000)
-        except Exception:
+            # 3. Запуск
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = process.communicate()
+            
+            if not stdout.strip():
+                # Если ffprobe упал из-за драйверов, попробуем вернуть 0, но выведем ошибку в консоль
+                print(f"FFprobe failed. Stderr: {stderr}")
+                return 0
+                
+            try:
+                duration_sec = float(stdout.strip())
+                return int(duration_sec * 1000)
+            except ValueError:
+                return 0
+
+        except Exception as e:
+            print(f"Exception in get_external_duration: {e}")
             return 0
 
     def get_video_resolution(self, file_path: str) -> Optional[tuple[int, int]]:
