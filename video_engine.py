@@ -136,23 +136,42 @@ class FFmpegCommandBuilder:
         extra_flags = []
 
         if ext == '.mkv':
-            v_codec = 'libvpx-vp9'
+            if settings.use_gpu:
+                v_codec = 'hevc_nvenc'
+                extra_flags = ['-b:v', f'{mbps}M', 
+                               '-maxrate', f'{mbps + 5}M', 
+                               '-bufsize', f'{mbps * 2}M', 
+                               '-preset', 'p4', # p1-p7 for nvenc, p4 is medium
+                               '-profile:v', 'main']
+            else:
+                v_codec = 'libvpx-vp9'
+                extra_flags = ['-b:v', f'{mbps}M', 
+                               '-maxrate', f'{mbps + 5}M', 
+                               '-bufsize', f'{mbps * 2}M', 
+                               '-crf', '30', 
+                               '-deadline', 'realtime', 
+                               '-cpu-used', '4']
             a_codec = 'libopus'
-            extra_flags = ['-b:v', f'{mbps}M', 
-                           '-maxrate', f'{mbps + 5}M', 
-                           '-bufsize', f'{mbps * 2}M', 
-                           '-crf', '30', 
-                           '-deadline', 'realtime', 
-                           '-cpu-used', '4']
         elif ext == '.mp4':
-            v_codec = 'libx264'
+            if settings.use_gpu:
+                v_codec = 'h264_nvenc'
+                extra_flags = ['-b:v', f'{mbps}M', 
+                               '-maxrate', f'{mbps + 5}M', 
+                               '-bufsize', f'{mbps * 2}M', 
+                               '-preset', 'p4', 
+                               '-profile:v', 'high',
+                               '-pix_fmt', 'yuv420p']
+            else:
+                v_codec = 'libx264'
+                extra_flags = ['-b:v', f'{mbps}M', 
+                               '-maxrate', f'{mbps + 5}M', 
+                               '-bufsize', f'{mbps * 2}M', 
+                               '-preset', 'medium', 
+                               '-pix_fmt', 'yuv420p']
             a_codec = 'aac'
-            extra_flags = ['-b:v', f'{mbps}M', 
-                           '-maxrate', f'{mbps + 5}M', 
-                           '-bufsize', f'{mbps * 2}M', 
-                           '-preset', 'medium', 
-                           '-pix_fmt', 'yuv420p']
         elif ext == '.webm':
+            # Note: nvenc vp9 support is rare in standard ffmpeg builds
+            # Fallback to libvpx-vp9 but use more cores if possible
             v_codec = 'libvpx-vp9'
             a_codec = 'libopus'
             extra_flags = ['-b:v', f'{mbps}M', 

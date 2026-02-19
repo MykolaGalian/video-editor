@@ -4,7 +4,7 @@ from typing import List, Optional
 import sys
 from PyQt6.QtWidgets import (QMainWindow, QPushButton, QLabel, QSlider, QVBoxLayout, 
                              QHBoxLayout, QWidget, QFileDialog, QStyle, QMessageBox, 
-                             QProgressBar, QComboBox, QGroupBox, QMenu)
+                             QProgressBar, QComboBox, QGroupBox, QMenu, QRadioButton)
 from PyQt6.QtGui import QIcon
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -242,6 +242,17 @@ class MainWindow(QMainWindow):
         self.fps_combo.setCurrentText("23.976")
         fps_row.addWidget(self.fps_combo)
         export_layout.addLayout(fps_row)
+
+        # Hardware Acceleration (GPU/CPU)
+        hw_row = QHBoxLayout()
+        hw_label = QLabel("Engine:")
+        hw_row.addWidget(hw_label)
+        self.cpu_radio = QRadioButton("CPU")
+        self.gpu_radio = QRadioButton("GPU (NVENC)")
+        self.cpu_radio.setChecked(True)
+        hw_row.addWidget(self.cpu_radio)
+        hw_row.addWidget(self.gpu_radio)
+        export_layout.addLayout(hw_row)
         
         # Duration Label (Effective)
         self.duration_label = QLabel("Total: 00:00:00")
@@ -549,7 +560,6 @@ class MainWindow(QMainWindow):
         self.end_time_ms = 0
         self.update_slider_selection()
         self.start_label.setText(f"Start: {self.format_time(0)}")
-        self.start_label.setText(f"Start: {self.format_time(0)}")
         self.end_label.setText(f"End: {self.format_time(0)}")
         self.update_total_duration()
 
@@ -609,7 +619,8 @@ class MainWindow(QMainWindow):
             bitrate_mbps=self.bitrate_slider.value(),
             use_external_audio=bool(self.external_audio_path),
             external_audio_path=self.external_audio_path,
-            fps=float(self.fps_combo.currentText())
+            fps=float(self.fps_combo.currentText()),
+            use_gpu=self.gpu_radio.isChecked()
         )
 
         try:
@@ -667,6 +678,8 @@ class MainWindow(QMainWindow):
         self.clear_audio_btn.setEnabled(enabled)
         self.add_clip_btn.setEnabled(enabled)
         self.clear_timeline_btn.setEnabled(enabled)
+        self.cpu_radio.setEnabled(enabled)
+        self.gpu_radio.setEnabled(enabled)
         self.export_btn.setEnabled(enabled)
 
     def closeEvent(self, event):

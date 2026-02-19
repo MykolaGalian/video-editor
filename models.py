@@ -15,8 +15,8 @@ class ExportSettings:
     bitrate_mbps: int
     use_external_audio: bool = False
     external_audio_path: Optional[str] = None
-    external_audio_path: Optional[str] = None
     fps: float = 23.976
+    use_gpu: bool = False
 
 @dataclass
 class SourceClip:
