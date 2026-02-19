@@ -507,6 +507,7 @@ class MainWindow(QMainWindow):
 
     def stop_video(self):
         self.media_player.stop()
+        self.set_position(0)
 
     def position_changed(self, position):
         if not self.current_clip:
