@@ -9,14 +9,14 @@ class TimelineManager:
     def __init__(self):
         self.playlist: List[SourceClip] = []
 
-    def add_clip(self, path: str, duration_ms: int):
+    def add_clip(self, path: str, duration_ms: int, width: int, height: int):
         """Adds a clip to the end of the playlist."""
         global_start = 0
         if self.playlist:
             global_start = self.playlist[-1].global_end_ms
         
         global_end = global_start + duration_ms
-        clip = SourceClip(path, duration_ms, global_start, global_end)
+        clip = SourceClip(path, duration_ms, width, height, global_start, global_end)
         self.playlist.append(clip)
 
     def get_total_duration(self) -> int:

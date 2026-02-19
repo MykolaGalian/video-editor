@@ -95,7 +95,7 @@ class MainWindow(QMainWindow):
 
         # --- ZONE 2: TOOLBAR (Bottom, Fixed Height) ---
         tools_group = QGroupBox()
-        tools_group.setFixedHeight(180) 
+        tools_group.setFixedHeight(250) 
         tools_layout = QHBoxLayout(tools_group)
         
         # SECTION A: EDITING TOOLS (Left)
@@ -289,6 +289,11 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         export_layout.addWidget(self.progress_bar)
         
+        # Ensure initial state: Button visible, Progress Bar hidden
+        self.export_btn.setVisible(True)
+        self.progress_bar.setVisible(False)
+        self.export_status_label.setVisible(False)
+        
         tools_layout.addLayout(export_layout)
         
         main_layout.addWidget(tools_group)
@@ -327,7 +332,8 @@ class MainWindow(QMainWindow):
             
             ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
             if not os.path.exists(ffprobe_path):
-                return 0
+                # Fallback to just "ffprobe" if ffmpeg_path doesn't have it in the same dir
+                ffprobe_path = "ffprobe"
                 
             cmd = [
                 ffprobe_path,
@@ -342,6 +348,34 @@ class MainWindow(QMainWindow):
             return int(duration_sec * 1000)
         except Exception:
             return 0
+
+    def get_video_resolution(self, file_path: str) -> Optional[tuple[int, int]]:
+        try:
+            ffmpeg_path = self.ffmpeg_builder.get_ffmpeg_path()
+            if not ffmpeg_path:
+                return None
+            
+            ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
+            if not os.path.exists(ffprobe_path):
+                ffprobe_path = "ffprobe"
+                
+            cmd = [
+                ffprobe_path,
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0",
+                file_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            res_str = result.stdout.strip()
+            if 'x' in res_str:
+                w, h = map(int, res_str.split('x'))
+                return w, h
+            return None
+        except Exception:
+            return None
 
     def update_total_duration(self):
         # Slider range is based on the full timeline (including gaps)
@@ -368,11 +402,13 @@ class MainWindow(QMainWindow):
             self.segments = []
             
             duration = self.get_external_duration(file_name)
-            if duration == 0:
-                QMessageBox.warning(self, "Error", "Could not determine video duration.")
+            resolution = self.get_video_resolution(file_name)
+            
+            if duration == 0 or not resolution:
+                QMessageBox.warning(self, "Error", "Could not analyze video file (duration/resolution).")
                 return
 
-            self.timeline_manager.add_clip(file_name, duration)
+            self.timeline_manager.add_clip(file_name, duration, resolution[0], resolution[1])
             self.current_clip = self.timeline_manager.playlist[0]
             
             self.path_label.setText(f"Playlist: 1 clip ({os.path.basename(file_name)})")
@@ -390,15 +426,26 @@ class MainWindow(QMainWindow):
         file_name, _ = QFileDialog.getOpenFileName(self, "Add Clip", "", "Video Files (*.mp4 *.webm *.mkv)")
         if file_name:
             duration = self.get_external_duration(file_name)
-            if duration == 0:
-                QMessageBox.warning(self, "Error", "Could not determine video duration.")
+            resolution = self.get_video_resolution(file_name)
+
+            if duration == 0 or not resolution:
+                QMessageBox.warning(self, "Error", "Could not analyze video file.")
                 return
+
+            # Check for resolution mismatch
+            if self.timeline_manager.playlist:
+                first_clip = self.timeline_manager.playlist[0]
+                if resolution != (first_clip.width, first_clip.height):
+                    QMessageBox.warning(self, "Resolution Mismatch", 
+                                       f"All files must have the same resolution.\n"
+                                       f"Required: {first_clip.width}x{first_clip.height}\n"
+                                       f"Provided: {resolution[0]}x{resolution[1]}")
+                    return
                 
-            self.timeline_manager.add_clip(file_name, duration)
+            self.timeline_manager.add_clip(file_name, duration, resolution[0], resolution[1])
+            new_clip = self.timeline_manager.playlist[-1]
             
             # Update segments - add new segment for the new clip
-            # Actually, segments are "Keep" zones. If we add a clip, we probably want to keep it by default.
-            new_clip = self.timeline_manager.playlist[-1]
             self.segments.append(Segment(new_clip.global_start_ms, new_clip.global_end_ms))
             self.segments.sort(key=lambda x: x.start_ms)
             self.slider.set_segments(self.segments)
@@ -613,10 +660,13 @@ class MainWindow(QMainWindow):
             return
 
         # Create ExportSettings
+        first_clip = self.timeline_manager.playlist[0]
         settings = ExportSettings(
             output_path=output_path,
             format=os.path.splitext(output_path)[1][1:], # Remove dot
             bitrate_mbps=self.bitrate_slider.value(),
+            width=first_clip.width,
+            height=first_clip.height,
             use_external_audio=bool(self.external_audio_path),
             external_audio_path=self.external_audio_path,
             fps=float(self.fps_combo.currentText()),
@@ -641,14 +691,16 @@ class MainWindow(QMainWindow):
 
     def on_export_started(self):
         self.set_controls_enabled(False)
-        self.export_btn.setVisible(False)
+        self.export_btn.setEnabled(False)
+        self.export_btn.setText("SAVING...")
         self.export_status_label.setVisible(True)
         self.progress_bar.setVisible(True)
         self.path_label.setText("Exporting... Please wait.")
 
     def on_export_finished(self):
         self.set_controls_enabled(True)
-        self.export_btn.setVisible(True)
+        self.export_btn.setEnabled(True)
+        self.export_btn.setText("EXPORT")
         self.export_status_label.setVisible(False)
         self.progress_bar.setVisible(False)
         self.path_label.setText(self.media_player.source().toLocalFile())
@@ -657,7 +709,8 @@ class MainWindow(QMainWindow):
 
     def on_export_error(self, error_msg):
         self.set_controls_enabled(True)
-        self.export_btn.setVisible(True)
+        self.export_btn.setEnabled(True)
+        self.export_btn.setText("EXPORT")
         self.export_status_label.setVisible(False)
         self.progress_bar.setVisible(False)
         self.path_label.setText(self.media_player.source().toLocalFile())

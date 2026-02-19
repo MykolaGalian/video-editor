@@ -86,9 +86,9 @@ class FFmpegCommandBuilder:
                     local_end = (end - clip.global_start_ms) / 1000.0
                     
                     # Video Trim + Scale + SetSAR
-                    # We force scale to 3840:2160 and SAR 1:1 to ensure all clips match
+                    # We force scale to match the first clip's resolution to ensure all clips match
                     label_v = f"[v_seg_{seg_idx}_{i}]"
-                    filter_parts.append(f"[{i}:v]trim={local_start}:{local_end},setpts=PTS-STARTPTS,scale=3840:2160,setsar=1{label_v}")
+                    filter_parts.append(f"[{i}:v]trim={local_start}:{local_end},setpts=PTS-STARTPTS,scale={settings.width}:{settings.height},setsar=1{label_v}")
                     concat_v_parts.append(label_v)
                     
                     # Audio Trim (only if using original audio)

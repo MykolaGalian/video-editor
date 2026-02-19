@@ -13,6 +13,8 @@ class ExportSettings:
     output_path: str
     format: str  # 'mp4', 'webm', 'mkv'
     bitrate_mbps: int
+    width: int
+    height: int
     use_external_audio: bool = False
     external_audio_path: Optional[str] = None
     fps: float = 23.976
@@ -23,5 +25,7 @@ class SourceClip:
     """Class representing a source video file in the timeline."""
     path: str
     duration_ms: int
+    width: int
+    height: int
     global_start_ms: int = 0
     global_end_ms: int = 0
