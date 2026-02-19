@@ -10,32 +10,64 @@ class FFmpegCommandBuilder:
     """
 
     def __init__(self):
-        self.ffmpeg_exec = self._find_ffmpeg()
+        self.ffmpeg_exec = None
+        self.ffprobe_exec = None
+        self._auto_discover()
 
-    def _find_ffmpeg(self) -> Optional[str]:
-        """
-        Attempts to locate the ffmpeg executable.
-        Checks system PATH and the current working directory.
-        """
-        # Check system PATH
-        ffmpeg_path = shutil.which("ffmpeg")
-        if ffmpeg_path:
-            return ffmpeg_path
+    def _auto_discover(self):
+        """Attempts to locate ffmpeg and ffprobe executables."""
+        # 1. Try system PATH
+        self.ffmpeg_exec = shutil.which("ffmpeg")
+        self.ffprobe_exec = shutil.which("ffprobe")
+
+        # 2. Try current directory if not found in PATH
+        if not self.ffmpeg_exec:
+            binary_name = "ffmpeg.exe" if os.name == 'nt' else "ffmpeg"
+            local_ffmpeg = os.path.join(os.getcwd(), binary_name)
+            if os.path.exists(local_ffmpeg):
+                self.ffmpeg_exec = local_ffmpeg
+
+        if not self.ffprobe_exec:
+            binary_name = "ffprobe.exe" if os.name == 'nt' else "ffprobe"
+            local_ffprobe = os.path.join(os.getcwd(), binary_name)
+            if os.path.exists(local_ffprobe):
+                self.ffprobe_exec = local_ffprobe
         
-        # Check current directory
+        # 3. If we found one but not the other, look in the same directory
+        if self.ffmpeg_exec and not self.ffprobe_exec:
+            self._find_sibling_ffprobe(self.ffmpeg_exec)
+        elif self.ffprobe_exec and not self.ffmpeg_exec:
+            self._find_sibling_ffmpeg(self.ffprobe_exec)
+
+    def _find_sibling_ffprobe(self, ffmpeg_path: str):
+        dir_name = os.path.dirname(ffmpeg_path)
+        binary_name = "ffprobe.exe" if os.name == 'nt' else "ffprobe"
+        probe_path = os.path.join(dir_name, binary_name)
+        if os.path.exists(probe_path):
+            self.ffprobe_exec = probe_path
+
+    def _find_sibling_ffmpeg(self, ffprobe_path: str):
+        dir_name = os.path.dirname(ffprobe_path)
         binary_name = "ffmpeg.exe" if os.name == 'nt' else "ffmpeg"
-        local_ffmpeg = os.path.join(os.getcwd(), binary_name)
- 
-        if os.path.exists(local_ffmpeg):
-            return local_ffmpeg
-            
-        return None
+        ffmpeg_path = os.path.join(dir_name, binary_name)
+        if os.path.exists(ffmpeg_path):
+            self.ffmpeg_exec = ffmpeg_path
 
     def get_ffmpeg_path(self) -> Optional[str]:
         return self.ffmpeg_exec
 
+    def get_ffprobe_path(self) -> Optional[str]:
+        return self.ffprobe_exec
+
     def set_ffmpeg_path(self, path: str):
-        self.ffmpeg_exec = path
+        """Sets the ffmpeg path and tries to find ffprobe nearby."""
+        # Handle case where user accidentally picks ffprobe.exe
+        if "ffprobe" in os.path.basename(path).lower():
+            self.ffprobe_exec = path
+            self._find_sibling_ffmpeg(path)
+        else:
+            self.ffmpeg_exec = path
+            self._find_sibling_ffprobe(path)
 
     def build_command(self, playlist: List[SourceClip], segments: List[Segment], settings: ExportSettings) -> List[str]:
         """

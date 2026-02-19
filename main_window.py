@@ -337,14 +337,9 @@ class MainWindow(QMainWindow):
 
     def get_external_duration(self, file_path: str) -> int:
         try:
-            ffmpeg_path = self.ffmpeg_builder.get_ffmpeg_path()
-            if not ffmpeg_path: return 0
-            
-            ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
-            if not os.path.exists(ffprobe_path):
-                import shutil
-                ffprobe_path = shutil.which("ffprobe")
-                if not ffprobe_path: return 0
+            ffprobe_path = self.ffmpeg_builder.get_ffprobe_path()
+            if not ffprobe_path:
+                return 0
                 
             cmd = [
                 ffprobe_path, "-v", "error",
@@ -367,14 +362,9 @@ class MainWindow(QMainWindow):
 
     def get_video_resolution(self, file_path: str) -> Optional[tuple[int, int]]:
         try:
-            ffmpeg_path = self.ffmpeg_builder.get_ffmpeg_path()
-            if not ffmpeg_path: return None
-            
-            ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
-            if not os.path.exists(ffprobe_path):
-                import shutil
-                ffprobe_path = shutil.which("ffprobe")
-                if not ffprobe_path: return None
+            ffprobe_path = self.ffmpeg_builder.get_ffprobe_path()
+            if not ffprobe_path:
+                return None
                 
             cmd = [
                 ffprobe_path, "-v", "error",
@@ -431,9 +421,10 @@ class MainWindow(QMainWindow):
             
             if duration == 0 or not resolution:
                 err_msg = "Could not analyze video file.\n"
+                if not self.ffmpeg_builder.get_ffprobe_path():
+                    err_msg += "- ffprobe.exe was not found. Please ensure it is in the same folder as ffmpeg.exe.\n"
                 if duration == 0: err_msg += "- Could not determine duration.\n"
                 if not resolution: err_msg += "- Could not determine resolution.\n"
-                err_msg += "Check if 'ffprobe.exe' is in the same folder as 'ffmpeg.exe'."
                 QMessageBox.warning(self, "Analysis Error", err_msg)
                 return
 
@@ -462,9 +453,10 @@ class MainWindow(QMainWindow):
 
             if duration == 0 or not resolution:
                 err_msg = "Could not analyze video file.\n"
+                if not self.ffmpeg_builder.get_ffprobe_path():
+                    err_msg += "- ffprobe.exe was not found. Please ensure it is in the same folder as ffmpeg.exe.\n"
                 if duration == 0: err_msg += "- Could not determine duration.\n"
                 if not resolution: err_msg += "- Could not determine resolution.\n"
-                err_msg += "Check if 'ffprobe.exe' is in the same folder as 'ffmpeg.exe'."
                 QMessageBox.warning(self, "Analysis Error", err_msg)
                 return
 
