@@ -319,81 +319,84 @@ class MainWindow(QMainWindow):
         # self.media_player.durationChanged.connect(self.duration_changed) # We handle duration manually now
 
     def _check_ffmpeg(self):
-        if not self.ffmpeg_builder.get_ffmpeg_path():
-            # Try to find it again or warn user?
-            # For now just leave it None, will prompt on export
-            pass
+        # Initial check, we'll prompt lazily if needed
+        pass
+
+    def _ensure_ffmpeg(self) -> bool:
+        """Checks if FFmpeg is available, prompts user if not."""
+        if self.ffmpeg_builder.get_ffmpeg_path():
+            return True
+            
+        QMessageBox.information(self, "FFmpeg Required", 
+                                "FFmpeg is required for video analysis.\nPlease select the ffmpeg.exe executable.")
+        ffmpeg_path, _ = QFileDialog.getOpenFileName(self, "Select FFmpeg Executable", "", "Executables (*.exe)")
+        if ffmpeg_path:
+            self.ffmpeg_builder.set_ffmpeg_path(ffmpeg_path)
+            return True
+        return False
 
     def get_external_duration(self, file_path: str) -> int:
         try:
-            # 1. Поиск путей
             ffmpeg_path = self.ffmpeg_builder.get_ffmpeg_path()
             if not ffmpeg_path: return 0
             
-            ffprobe_name = "ffprobe.exe" if os.name == 'nt' else "ffprobe"
-            ffmpeg_dir = os.path.dirname(ffmpeg_path)
-            ffprobe_path = os.path.join(ffmpeg_dir, ffprobe_name)
-            
+            ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
             if not os.path.exists(ffprobe_path):
                 import shutil
                 ffprobe_path = shutil.which("ffprobe")
                 if not ffprobe_path: return 0
                 
-            # 2. Формируем команду (МАКСИМАЛЬНО ПРОСТУЮ)
-            # Убрали -vn и -sn, так как они вызывали ошибку синтаксиса
             cmd = [
-                ffprobe_path,
-                "-v", "error",
+                ffprobe_path, "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 file_path
             ]
             
-            # 3. Запуск
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = process.communicate()
-            
-            if not stdout.strip():
-                # Если ffprobe упал из-за драйверов, попробуем вернуть 0, но выведем ошибку в консоль
-                print(f"FFprobe failed. Stderr: {stderr}")
-                return 0
-                
-            try:
-                duration_sec = float(stdout.strip())
-                return int(duration_sec * 1000)
-            except ValueError:
-                return 0
+            startupinfo = None
+            if sys.platform == 'win32':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, startupinfo=startupinfo)
+            res_str = result.stdout.strip().split('\n')[0].strip()
+            return int(float(res_str) * 1000)
         except Exception as e:
-            print(f"Exception in get_external_duration: {e}")
+            print(f"Duration error: {e}")
             return 0
 
     def get_video_resolution(self, file_path: str) -> Optional[tuple[int, int]]:
         try:
             ffmpeg_path = self.ffmpeg_builder.get_ffmpeg_path()
-            if not ffmpeg_path:
-                return None
+            if not ffmpeg_path: return None
             
             ffprobe_path = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe")
             if not os.path.exists(ffprobe_path):
-                ffprobe_path = "ffprobe"
+                import shutil
+                ffprobe_path = shutil.which("ffprobe")
+                if not ffprobe_path: return None
                 
             cmd = [
-                ffprobe_path,
-                "-v", "error",
+                ffprobe_path, "-v", "error",
                 "-select_streams", "v:0",
                 "-show_entries", "stream=width,height",
                 "-of", "csv=s=x:p=0",
                 file_path
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            res_str = result.stdout.strip()
+            startupinfo = None
+            if sys.platform == 'win32':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, startupinfo=startupinfo)
+            res_str = result.stdout.strip().split('\n')[0].strip()
             if 'x' in res_str:
                 w, h = map(int, res_str.split('x'))
                 return w, h
             return None
-        except Exception:
+        except Exception as e:
+            print(f"Resolution error: {e}")
             return None
 
     def update_total_duration(self):
@@ -420,11 +423,18 @@ class MainWindow(QMainWindow):
             self.timeline_manager.clear()
             self.segments = []
             
+            if not self._ensure_ffmpeg():
+                return
+
             duration = self.get_external_duration(file_name)
             resolution = self.get_video_resolution(file_name)
             
             if duration == 0 or not resolution:
-                QMessageBox.warning(self, "Error", "Could not analyze video file (duration/resolution).")
+                err_msg = "Could not analyze video file.\n"
+                if duration == 0: err_msg += "- Could not determine duration.\n"
+                if not resolution: err_msg += "- Could not determine resolution.\n"
+                err_msg += "Check if 'ffprobe.exe' is in the same folder as 'ffmpeg.exe'."
+                QMessageBox.warning(self, "Analysis Error", err_msg)
                 return
 
             self.timeline_manager.add_clip(file_name, duration, resolution[0], resolution[1])
@@ -444,11 +454,18 @@ class MainWindow(QMainWindow):
     def add_clip(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Add Clip", "", "Video Files (*.mp4 *.webm *.mkv)")
         if file_name:
+            if not self._ensure_ffmpeg():
+                return
+
             duration = self.get_external_duration(file_name)
             resolution = self.get_video_resolution(file_name)
 
             if duration == 0 or not resolution:
-                QMessageBox.warning(self, "Error", "Could not analyze video file.")
+                err_msg = "Could not analyze video file.\n"
+                if duration == 0: err_msg += "- Could not determine duration.\n"
+                if not resolution: err_msg += "- Could not determine resolution.\n"
+                err_msg += "Check if 'ffprobe.exe' is in the same folder as 'ffmpeg.exe'."
+                QMessageBox.warning(self, "Analysis Error", err_msg)
                 return
 
             # Check for resolution mismatch
