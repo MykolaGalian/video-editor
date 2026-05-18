@@ -227,6 +227,8 @@ class MainWindow(QMainWindow):
         export_layout.addWidget(self.bitrate_label)
         self.bitrate_slider = QSlider(Qt.Orientation.Horizontal)
         self.bitrate_slider.setRange(5, 60)
+        self.bitrate_slider.setSingleStep(1)
+        self.bitrate_slider.setPageStep(5)
         self.bitrate_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.bitrate_slider.setTickInterval(5)
         self.bitrate_slider.setValue(25)
@@ -659,15 +661,6 @@ class MainWindow(QMainWindow):
     # Append methods removed
 
     def update_bitrate_label(self, value):
-        step = 5
-        snapped_value = round(value / step) * step
-
-        if value != snapped_value:
-            self.bitrate_slider.blockSignals(True)
-            self.bitrate_slider.setValue(snapped_value)
-            self.bitrate_slider.blockSignals(False)
-            value = snapped_value
-
         self.bitrate_label.setText(f"Bitrate: {value} Mbps")
 
     def start_export(self):
